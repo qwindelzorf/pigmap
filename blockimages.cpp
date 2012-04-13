@@ -23,6 +23,7 @@
 
 using namespace std;
 
+#define TEXCOORD(ROW, COL) (ROW * 16 + COL)
 
 // in this file, confusingly, "tile" refers to the tiles of terrain.png, not to the map tiles
 //
@@ -71,6 +72,7 @@ bool BlockImages::create(int B, const string& imgpath)
 	string blocksfile = imgpath + "/blocks-" + tostring(B) + ".png";
 	RGBAImage oldimg;
 	bool preserveold = false;
+
 	if (img.readPNG(blocksfile))
 	{
 		// if it's the correct size and version, we're okay
@@ -106,6 +108,35 @@ bool BlockImages::create(int B, const string& imgpath)
 	if (!construct(B, terrainfile, firefile, endportalfile))
 	{
 		cerr << "image path is missing at least one of: terrain.png, fire.png, endportal.png" << endl;
+		return false;
+	}
+
+	// Load BuildCraft texture files
+	string bcfile = imgpath + "/block_textures.png";
+	if(!constructBC(B, bcfile))
+	{
+		cerr << "could not find Buildcraft texture file: blocktextures.png" << endl;
+		return false;
+	}
+
+	// Load Industiral-Craft2 texture files
+	string block0file = imgpath + "/block_0.png";
+	string cablefile = imgpath + "/block_cable.png";
+	string electricfile = imgpath + "/block_electric.png";
+	string generatorfile = imgpath + "/block_generator.png";
+	string machinefile = imgpath + "/block_machine.png";
+	string machine2file = imgpath + "/block_machine2.png";
+	string personalfile = imgpath + "/block_personal.png";
+	if(!constructIC(B, block0file, cablefile, electricfile, generatorfile, machinefile, machine2file, personalfile))
+	{
+		cerr << "could not find all Industrial-Craft2 texture files:" << endl;
+		cerr << "\tblock_0.png" << endl;
+		cerr << "\tblock_cable.png" << endl;
+		cerr << "\tblock_electric.png" << endl;
+		cerr << "\tblock_generator.png" << endl;
+		cerr << "\tblock_machine.png" << endl;
+		cerr << "\tblock_machine2.png" << endl;
+		cerr << "\tblock_personal.png" << endl;
 		return false;
 	}
 
@@ -407,6 +438,7 @@ void drawRotatedBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAIm
 // bottomcutoff is the number of pixels (out of 2B) to chop off the bottom
 // if shift is true, we start copying pixels from the very top of the source tile, even if there's a topcutoff
 // U face can also be rotated, and N/W faces can be X-flipped (set 0x1 for N, 0x2 for W)
+// handles transparency
 void drawPartialBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAImage& tiles, int Nface, int Wface, int Uface, int B, int topcutoff, int bottomcutoff, int rot, int flip, bool shift)
 {
 	int tilesize = 2*B;
@@ -421,7 +453,7 @@ void drawPartialBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAIm
 		{
 			if (dstit.pos % tilesize >= topcutoff && dstit.pos % tilesize < end)
 			{
-				dest(dstit.x, dstit.y) = tiles(srcit.x, srcit.y - (shift ? topcutoff : 0));
+				blend(dest(dstit.x, dstit.y), tiles(srcit.x, srcit.y - (shift ? topcutoff : 0)));
 				darken(dest(dstit.x, dstit.y), 0.9, 0.9, 0.9);
 			}
 		}
@@ -434,7 +466,7 @@ void drawPartialBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAIm
 		{
 			if (dstit.pos % tilesize >= topcutoff && dstit.pos % tilesize < end)
 			{
-				dest(dstit.x, dstit.y) = tiles(srcit.x, srcit.y - (shift ? topcutoff : 0));
+				blend(dest(dstit.x, dstit.y), tiles(srcit.x, srcit.y - (shift ? topcutoff : 0)));
 				darken(dest(dstit.x, dstit.y), 0.8, 0.8, 0.8);
 			}
 		}
@@ -445,7 +477,7 @@ void drawPartialBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAIm
 		TopFaceIterator dstit(drect.x + 2*B-1, drect.y + topcutoff, tilesize);
 		for (RotatedFaceIterator srcit((Uface%16)*tilesize, (Uface/16)*tilesize, rot, tilesize, false); !srcit.end; srcit.advance(), dstit.advance())
 		{
-			dest(dstit.x, dstit.y) = tiles(srcit.x, srcit.y);
+			blend(dest(dstit.x, dstit.y), tiles(srcit.x, srcit.y));
 		}
 	}
 }
@@ -1308,8 +1340,92 @@ void drawDragonEgg(RGBAImage& dest, const ImageRect& drect, const RGBAImage& til
 	}
 }
 
+void drawOffsetSingleFaceBlockImage(RGBAImage& dest, const ImageRect& drect, const RGBAImage& tiles, int tile, int face, int B, double fstartv, double fendv, double fstarth, double fendh)
+{
+	int tilesize = 2*B;
+	int vstartcutoff = max(0, min(tilesize, (int)(fstartv * tilesize)));
+	int vendcutoff = max(0, min(tilesize, (int)(fendv * tilesize)));
+	int hstartcutoff = max(0, min(tilesize, (int)(fstarth * tilesize)));
+	int hendcutoff = max(0, min(tilesize, (int)(fendh * tilesize)));
+	int xoff, yoff, deltaY;
+	if (face == 0)
+	{
+		xoff = 2*B;
+		yoff = 0;
+		deltaY = 1;
+	}
+	else if (face == 1)
+	{
+		xoff = 0;
+		yoff = B;
+		deltaY = 1;
+	}
+	else if (face == 2)
+	{
+		xoff = 2*B;
+		yoff = 2*B;
+		deltaY = -1;
+	}
+	else
+	{
+		xoff = 0;
+		yoff = B;
+		deltaY = -1;
+	}
+	for (FaceIterator srcit((tile%16)*tilesize, (tile/16)*tilesize, 0, tilesize),
+	     dstit(drect.x + xoff, drect.y + yoff, deltaY, tilesize); !srcit.end; srcit.advance(), dstit.advance())
+	{
+			blend(dest(dstit.x, dstit.y), tiles(srcit.x, srcit.y));
+	}
+}
 
+void drawPipe(RGBAImage& dest, const ImageRect& drect, const RGBAImage& tiles, int tile, int B)
+{
+	drawPartialBlockImage(dest, drect, tiles, -1, -1, tile, B, B, 0, 0, 0, false);	// Top
+	drawItemBlockImage(dest, drect, tiles, tile, B);
+}
 
+void drawEngine(RGBAImage& dest, const ImageRect& drect, const RGBAImage& tiles, int coltile, int basetile, int B)
+{
+	// draw base
+	drawPartialBlockImage(dest, drect, tiles, basetile, basetile, basetile, B, B, 0, 0, 0, 0);
+
+	// draw colored pillar
+	int tilesize = 2*B;
+	// N face at [0,-0.5B]; draw the bottom-right quarter of it
+	for (FaceIterator srcit((coltile%16)*tilesize, (coltile/16)*tilesize, 0, tilesize),
+	     dstit(drect.x, drect.y - B/2, 1, tilesize); !srcit.end; srcit.advance(), dstit.advance())
+	{
+		if (dstit.pos % tilesize >= B && dstit.pos / tilesize >= B)
+		{
+			dest(dstit.x, dstit.y) = tiles(srcit.x, srcit.y);
+			darken(dest(dstit.x, dstit.y), 0.9, 0.9, 0.9);
+		}
+	}
+	// W face at [2B,0.5B]; draw the bottom-left quarter of it
+	for (FaceIterator srcit((coltile%16)*tilesize, (coltile/16)*tilesize, 0, tilesize),
+	     dstit(drect.x + 2*B, drect.y + B/2, -1, tilesize); !srcit.end; srcit.advance(), dstit.advance())
+	{
+		if (dstit.pos % tilesize >= B && dstit.pos / tilesize < B)
+		{
+			dest(dstit.x, dstit.y) = tiles(srcit.x, srcit.y);
+			darken(dest(dstit.x, dstit.y), 0.8, 0.8, 0.8);
+		}
+	}
+	// draw the bottom-right quarter of a U face at [2B-1,-0.5B]
+	TopFaceIterator tdstit(drect.x + 2*B-1, drect.y - B/2, tilesize);
+	for (FaceIterator srcit((coltile%16)*tilesize, (coltile/16)*tilesize, 0, tilesize); !srcit.end; srcit.advance(), tdstit.advance())
+	{
+		// again, if B is odd, take B pixels from each column; if even, take B-1 or B+1
+		int cutoff = B;
+		if (B % 2 == 0)
+			cutoff += ((tdstit.pos / tilesize) % 2 == 0) ? -1 : 1;
+		if (tdstit.pos % tilesize >= cutoff && tdstit.pos / tilesize >= cutoff)
+		{
+			dest(tdstit.x, tdstit.y) = tiles(srcit.x, srcit.y);
+		}
+	}
+}
 
 int offsetIdx(uint8_t blockID, uint8_t blockData)
 {
@@ -1794,6 +1910,117 @@ void BlockImages::setOffsets()
 	setOffsetsForID(122, 378, *this);
 	setOffsetsForID(123, 434, *this);
 	setOffsetsForID(124, 433, *this);
+
+	// Buildcraft Block offsets
+	setOffsetsForID(161, 567, *this); // Redstone Engine
+	blockOffsets[offsetIdx(161, 1)] = 568; // Steam Engine
+	blockOffsets[offsetIdx(161, 2)] = 569; // Combustion Engine
+
+	setOffsetsForID(152, 525, *this); // AutoWorkbench
+	setOffsetsForID(157, 527, *this); // Builder
+	setOffsetsForID(155, 530, *this); // Filler
+	setOffsetsForID(153, 522, *this); // Quarry
+	setOffsetsForID(158, 526, *this); // Template Table
+	setOffsetsForID(158, 526, *this); // Drafting Table
+	setOffsetsForID(150, 519, *this); // Mining Well
+	setOffsetsForID(160, 518, *this); // Frame
+	setOffsetsForID(151, 516, *this); // Mining Pipe
+	setOffsetsForID(151, 517, *this); // Mining Tip
+
+	setOffsetsForID(154, 540, *this); // LandMark
+
+	//setOffsetsForID(166, 537, *this); // Pump Inlet // this _should_ be correct
+	setOffsetsForID(166, 501, *this); // cobblestone pipe
+	setOffsetsForID(164, 534, *this); // Pump
+	setOffsetsForID(162, 570, *this); // Flowing Oil
+	blockOffsets[offsetIdx(162, 1)] = 571;
+	blockOffsets[offsetIdx(162, 2)] = 572;
+	blockOffsets[offsetIdx(162, 3)] = 573;
+	blockOffsets[offsetIdx(162, 4)] = 574;
+	blockOffsets[offsetIdx(162, 5)] = 575;
+	blockOffsets[offsetIdx(162, 6)] = 576;
+	blockOffsets[offsetIdx(162, 7)] = 577;
+	setOffsetsForID(163, 570, *this); // Still Oil
+	blockOffsets[offsetIdx(163, 1)] = 571;
+	blockOffsets[offsetIdx(163, 2)] = 572;
+	blockOffsets[offsetIdx(163, 3)] = 573;
+	blockOffsets[offsetIdx(163, 4)] = 574;
+	blockOffsets[offsetIdx(163, 5)] = 575;
+	blockOffsets[offsetIdx(163, 6)] = 576;
+	blockOffsets[offsetIdx(163, 7)] = 577;
+	setOffsetsForID(167, 533, *this); // Refinery
+	setOffsetsForID(165, 533, *this); // Tank
+
+	setOffsetsForID(145, 500, *this); // Wooden Pipe
+	setOffsetsForID(159, 501, *this); // Cobblestone Pipe
+	setOffsetsForID(147, 502, *this); // Iron Pipe
+	setOffsetsForID(148, 504, *this); // Golden Pipe
+	setOffsetsForID(149, 505, *this); // Diamond Pipe
+	setOffsetsForID(156, 512, *this); // Obsidian Pipe
+	setOffsetsForID(146, 513, *this); // Stone Pipe
+
+	// IC2 block mappings
+	setOffsetsForID(218, 600, *this); // Crop
+	setOffsetsForID(219, 601, *this); // Luminator
+	setOffsetsForID(220, 602, *this); // Scaffold
+	setOffsetsForID(221, 603, *this); // Wall
+	setOffsetsForID(222, 604, *this); // ConstructionFoam
+	setOffsetsForID(223, 605, *this); // Teleporter
+	blockOffsets[offsetIdx(223, 1)] = 606; // TeslaCoil
+	setOffsetsForID(224, 607, *this); // CopperBlock
+	blockOffsets[offsetIdx(224, 1)] = 608; // TinBlock
+	blockOffsets[offsetIdx(224, 2)] = 609; // BronzeBlock
+	blockOffsets[offsetIdx(224, 3)] = 610; // UraniumBlock
+	setOffsetsForID(225, 611, *this); // PersonalSafe
+	blockOffsets[offsetIdx(225, 1)] = 614; // TradeOMat
+	setOffsetsForID(226, 617, *this); // LuminatorOn
+	setOffsetsForID(227, 618, *this); // BatBox
+	blockOffsets[offsetIdx(227, 1)] = 619; // MFE
+	blockOffsets[offsetIdx(227, 2)] = 622; // MFSU
+	blockOffsets[offsetIdx(227, 3)] = 625; // LVTransformer
+	blockOffsets[offsetIdx(227, 4)] = 628; // MVTransformer
+	blockOffsets[offsetIdx(227, 5)] = 631; // HVTransformer
+	setOffsetsForID(228, 634, *this); // Cable
+	setOffsetsForID(229, 635, *this); // ReinforcedDoor
+	setOffsetsForID(230, 639, *this); // ReinforcedGlass
+	setOffsetsForID(231, 640, *this); // ReinforcedStone
+	setOffsetsForID(232, 641, *this); // IronFence
+	setOffsetsForID(233, 642, *this); // ReactorChamber
+	setOffsetsForID(234, 643, *this); // RubberSheet
+	setOffsetsForID(235, 644, *this); // RemoteDynamite
+	setOffsetsForID(236, 645, *this); // Dynamite
+	setOffsetsForID(237, 646, *this); // Nuke
+	setOffsetsForID(239, 647, *this); // ITNT
+	setOffsetsForID(241, 648, *this); // RubberSapling
+	setOffsetsForID(242, 649, *this); // RubberLeaves
+	setOffsetsForID(243, 650, *this); // RubberWood
+	setOffsetsForID(244, 651, *this); // MiningTip
+	setOffsetsForID(245, 652, *this); // MiningPipe 
+	setOffsetsForID(246, 653, *this); // Generator
+	blockOffsets[offsetIdx(246, 1)] = 656; // GeothermalGenerator
+	blockOffsets[offsetIdx(246, 2)] = 659; // WaterMill
+	blockOffsets[offsetIdx(246, 3)] = 662; // SolarPanel
+	blockOffsets[offsetIdx(246, 4)] = 663; // WindMill
+	blockOffsets[offsetIdx(246, 5)] = 666; // NuclearReactor
+	setOffsetsForID(247, 669, *this); // UraniumOre
+	setOffsetsForID(248, 670, *this); // TinOre
+	setOffsetsForID(249, 671, *this); // CopperOre
+	setOffsetsForID(250, 672, *this); // MachineBlock
+	blockOffsets[offsetIdx(250, 1)] = 673; // IronFurnace
+	blockOffsets[offsetIdx(250, 2)] = 676; // ElectricFurnace
+	blockOffsets[offsetIdx(250, 3)] = 679; // Macerator
+	blockOffsets[offsetIdx(250, 4)] = 682; // Extractor
+	blockOffsets[offsetIdx(250, 5)] = 685; // Compressor
+	blockOffsets[offsetIdx(250, 6)] = 688; // CanningMachine
+	blockOffsets[offsetIdx(250, 7)] = 691; // Miner
+	blockOffsets[offsetIdx(250, 8)] = 694; // ICPump
+	blockOffsets[offsetIdx(250, 9)] = 697; // Magnetizer
+	blockOffsets[offsetIdx(250, 10)] = 700; // Electrolyzer
+	blockOffsets[offsetIdx(250, 11)] = 703; // Recycler
+	blockOffsets[offsetIdx(250, 12)] = 706; // AdvancedMachineBlock
+	blockOffsets[offsetIdx(250, 13)] = 707; // InductionFurnace
+	blockOffsets[offsetIdx(250, 14)] = 710; // MassFabricator
+	blockOffsets[offsetIdx(250, 15)] = 703; // Terraformer
 }
 
 void BlockImages::checkOpacityAndTransparency(int B)
@@ -1896,6 +2123,317 @@ int deinterpolate(int targetj, int srcrange, int destrange)
 			return i;
 	}
 	return destrange - 1;
+}
+
+bool BlockImages::constructBC(int B, const string& bcTexturesFile)
+{
+	if(B < 2)
+		return false;
+
+	// Read the block textures file
+	RGBAImage bcTextures;
+	if (!bcTextures.readPNG(bcTexturesFile))
+		return false;
+	if (bcTextures.w % 16 != 0 || bcTextures.h != bcTextures.w)
+		return false;
+	int bcTexSize = bcTextures.w / 16;
+	RGBAImage tiles = getResizedTerrain(bcTextures, bcTexSize, B);
+
+	// determine some cutoff values for partial block images: given a particular pixel offset in terrain.png--for
+	//  example, the end portal frame texture is missing its top 3 (out of 16) pixels--we need to know which pixel
+	//  in the resized tile is the first one past that offset
+	// ...if the terrain tile size isn't a multiple of 16 for some reason, this may break down and be ugly
+	int CUTOFF_2_16 = deinterpolate(2 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_3_16 = deinterpolate(3 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_4_16 = deinterpolate(4 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_6_16 = deinterpolate(6 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_8_16 = deinterpolate(8 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_10_16 = deinterpolate(10 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_12_16 = deinterpolate(12 * bcTexSize/16, bcTexSize, 2*B);
+	int CUTOFF_14_16 = deinterpolate(14 * bcTexSize/16, bcTexSize, 2*B);
+
+	// Check to make sure img has been created.
+	if(img.w != rectsize*16)
+		return false;	// img was not created.  Must call normal construct before constructBC.
+
+	// build all block images
+	drawPipe(img, getRect(500), tiles, TEXCOORD(1, 0), B); // 500 wood output pipe
+	drawPipe(img, getRect(501), tiles, TEXCOORD(1, 1), B); // 501 cobblestone pipe
+	drawPipe(img, getRect(502), tiles, TEXCOORD(1, 2), B); // 502 iron output pipe
+	drawPipe(img, getRect(503), tiles, TEXCOORD(1, 3), B); // 503 iron input pipe
+	drawPipe(img, getRect(504), tiles, TEXCOORD(1, 4), B); // 504 gold pipe
+	drawPipe(img, getRect(505), tiles, TEXCOORD(1, 5), B); // 505 diamond pipe
+	drawPipe(img, getRect(506), tiles, TEXCOORD(1, 6), B); // 506 diamond black pipe
+	drawPipe(img, getRect(507), tiles, TEXCOORD(1, 7), B); // 507 diamond teal pipe
+	drawPipe(img, getRect(508), tiles, TEXCOORD(1, 8), B); // 508 diamond red pipe
+	drawPipe(img, getRect(509), tiles, TEXCOORD(1, 9), B); // 509 diamond blue pipe
+	drawPipe(img, getRect(510), tiles, TEXCOORD(1, 10), B); // 510 diamond green pipe
+	drawPipe(img, getRect(511), tiles, TEXCOORD(1, 11), B); // 511 diamond yellow pipe
+	drawPipe(img, getRect(512), tiles, TEXCOORD(1, 12), B); // 512 obsidian pipe
+	drawPipe(img, getRect(513), tiles, TEXCOORD(1, 13), B); // 513 stone pipe
+	drawPipe(img, getRect(514), tiles, TEXCOORD(1, 14), B); // 514 active gold pipe
+	drawPipe(img, getRect(515), tiles, TEXCOORD(1, 15), B); // 515 wood input pipe
+	drawPipe(img, getRect(555), tiles, TEXCOORD(7, 0), B); // 555 Waterproof Wood Pipe
+	drawPipe(img, getRect(556), tiles, TEXCOORD(7, 1), B); // 556 Waterproof Cobblestone Pipe
+	drawPipe(img, getRect(557), tiles, TEXCOORD(7, 2), B); // 557 Waterproof stone pipe
+	drawPipe(img, getRect(558), tiles, TEXCOORD(7, 3), B); // 558 waterproof iron pipe
+	drawPipe(img, getRect(559), tiles, TEXCOORD(7, 4), B); // 559 waterproof gold pipe
+	drawPipe(img, getRect(560), tiles, TEXCOORD(7, 5), B); // 560 waterproof diamond pipe
+	drawPipe(img, getRect(561), tiles, TEXCOORD(7, 6), B); // 561 conductive wood pipe
+	drawPipe(img, getRect(562), tiles, TEXCOORD(7, 7), B); // 562 conductive cobblestone pipe
+	drawPipe(img, getRect(563), tiles, TEXCOORD(7, 8), B); // 563 conductive stone pipe
+	drawPipe(img, getRect(564), tiles, TEXCOORD(7, 9), B); // 564 conductive iron pipe
+	drawPipe(img, getRect(565), tiles, TEXCOORD(7, 10), B); // 565 conductive gold pipe
+	drawPipe(img, getRect(566), tiles, TEXCOORD(7, 11), B); // 566 conductive diamond pipe
+
+	drawBlockImage(img, getRect(519), tiles, TEXCOORD(2, 4), TEXCOORD(2, 5), TEXCOORD(2, 3), B); // 519 miningwell W
+	drawBlockImage(img, getRect(520), tiles, TEXCOORD(2, 5), TEXCOORD(2, 4), TEXCOORD(2, 3), B); // 520 miningwell N
+	drawBlockImage(img, getRect(521), tiles, TEXCOORD(2, 5), TEXCOORD(2, 5), TEXCOORD(2, 3), B); // 521 miningwell E/S
+	drawDragonEgg(img, getRect(516), tiles, TEXCOORD(2, 0), B); // 516 mining pipe
+	drawDragonEgg(img, getRect(517), tiles, TEXCOORD(2, 1), B); // 517 mining tip
+
+	drawBlockImage(img, getRect(522), tiles, TEXCOORD(2, 6), TEXCOORD(2, 7), TEXCOORD(2, 8), B); // 522 quarry W
+	drawBlockImage(img, getRect(523), tiles, TEXCOORD(2, 7), TEXCOORD(2, 6), TEXCOORD(2, 8), B); // 523 quarry N
+	drawBlockImage(img, getRect(524), tiles, TEXCOORD(2, 6), TEXCOORD(2, 6), TEXCOORD(2, 8), B); // 524 quarry E/S
+	drawPipe(img, getRect(518), tiles, TEXCOORD(2, 2), B); // 518 frame
+
+	drawBlockImage(img, getRect(525), tiles, TEXCOORD(2, 12), TEXCOORD(2, 12), TEXCOORD(2, 11), B); // 525 Autoworkbench
+	drawBlockImage(img, getRect(526), tiles, TEXCOORD(3, 0), TEXCOORD(3, 0), TEXCOORD(3, 1), B); // 526 Template Table
+	drawBlockImage(img, getRect(527), tiles, TEXCOORD(3, 5), TEXCOORD(3, 7), TEXCOORD(3, 6), B); // 527 Builder W
+	drawBlockImage(img, getRect(528), tiles, TEXCOORD(3, 7), TEXCOORD(3, 5), TEXCOORD(3, 6), B); // 528 Builder N
+	drawBlockImage(img, getRect(529), tiles, TEXCOORD(3, 5), TEXCOORD(3, 5), TEXCOORD(3, 6), B); // 529 Builder E/S
+	drawBlockImage(img, getRect(530), tiles, TEXCOORD(3, 5), TEXCOORD(4, 2), TEXCOORD(4, 0), B); // 530 Filler W
+	drawBlockImage(img, getRect(531), tiles, TEXCOORD(4, 2), TEXCOORD(3, 5), TEXCOORD(4, 0), B); // 531 Filler N
+	drawBlockImage(img, getRect(532), tiles, TEXCOORD(3, 5), TEXCOORD(3, 5), TEXCOORD(4, 0), B); // 532 Filler E/S
+
+	drawBlockImage(img, getRect(534), tiles, TEXCOORD(6, 3), TEXCOORD(6, 3), TEXCOORD(6, 5), B); // 534 Pump W
+	drawBlockImage(img, getRect(535), tiles, TEXCOORD(6, 3), TEXCOORD(6, 3), TEXCOORD(6, 5), B); // 535 Pump N
+	drawBlockImage(img, getRect(536), tiles, TEXCOORD(6, 3), TEXCOORD(6, 3), TEXCOORD(6, 5), B); // 536 Pump E/S
+	drawDragonEgg(img, getRect(537), tiles, TEXCOORD(6, 6), B); // 537 Pump Inlet
+	drawBlockImage(img, getRect(533), tiles, TEXCOORD(6, 0), TEXCOORD(6, 0), TEXCOORD(6, 2), B); // 533 Tank
+
+	drawEngine(img, getRect(567), tiles, TEXCOORD(0, 2), TEXCOORD(2, 10), B); // 568 Redstone engine
+	drawEngine(img, getRect(568), tiles, TEXCOORD(0, 1), TEXCOORD(2, 10), B); // 569 Steam engine
+	drawEngine(img, getRect(569), tiles, TEXCOORD(0, 4), TEXCOORD(2, 10), B); // 570 Combustion engine
+
+	drawBlockImage(img, getRect(570), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B); // 570 Oil
+	drawPartialBlockImage(img, getRect(571), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_2_16, 0, 0, 0, true);  // Oil level 7
+	drawPartialBlockImage(img, getRect(572), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_4_16, 0, 0, 0, true);  // Oil level 6
+	drawPartialBlockImage(img, getRect(573), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_6_16, 0, 0, 0, true);  // Oil level 5
+	drawPartialBlockImage(img, getRect(574), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_8_16, 0, 0, 0, true);  // Oil level 4
+	drawPartialBlockImage(img, getRect(575), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_10_16, 0, 0, 0, true);  // Oil level 3
+	drawPartialBlockImage(img, getRect(576), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_12_16, 0, 0, 0, true);  // Oil level 2
+	drawPartialBlockImage(img, getRect(577), tiles, TEXCOORD(12, 14), TEXCOORD(12, 14), TEXCOORD(12, 14), B, CUTOFF_14_16, 0, 0, 0, true);  // Oil level 1
+
+
+	drawItemBlockImage(img, getRect(540), tiles, TEXCOORD(3, 9), B); // 540 landmark floor     
+	drawSingleFaceBlockImage(img, getRect(541), tiles, TEXCOORD(3, 9), 1, B); // 541 landmark pointing S
+	drawSingleFaceBlockImage(img, getRect(542), tiles, TEXCOORD(3, 9), 0, B); // 542 landmark pointing N
+	drawSingleFaceBlockImage(img, getRect(543), tiles, TEXCOORD(3, 9), 3, B); // 543 landmark pointing W
+	drawSingleFaceBlockImage(img, getRect(544), tiles, TEXCOORD(3, 9), 2, B); // 544 landmark pointing E
+
+	return true;
+}
+
+bool BlockImages::constructIC(int B, const string& block0File, const string& cableFile, const string& electricFile,
+	const string& generatorFile, const string& machineFile, const string& machine2File, const string& personalFile)
+{
+	if (B < 2)
+		return false;
+
+	// read the block0 file, check that it's okay
+	RGBAImage block0;
+	if (!block0.readPNG(block0File))
+	{
+		cerr << "Could not read file: " << block0File << endl;
+		return false;
+	}
+	int block0size = block0.w / 16;
+	RGBAImage block0tiles = getResizedTerrain(block0, block0size, B);
+
+	// read the cable file, check that it's okay
+	RGBAImage cable;
+	if (!cable.readPNG(cableFile))
+	{
+		cerr << "Could not read file: " << cableFile << endl;
+		return false;
+	}
+	int cablesize = cable.w / 16;
+	RGBAImage cabletiles = getResizedTerrain(cable, cablesize, B);
+
+	// read the electric file, check that it's okay
+	RGBAImage electric;
+	if (!electric.readPNG(electricFile))
+	{
+		cerr << "Could not read file: " << electricFile << endl;
+		return false;
+	}
+	int electricsize = electric.w / 16;
+	RGBAImage electrictiles = getResizedTerrain(electric, electricsize, B);
+
+	// read the generator file, check that it's okay
+	RGBAImage generator;
+	if (!generator.readPNG(generatorFile))
+	{
+		cerr << "Could not read file: " << generatorFile << endl;
+		return false;
+	}
+	int generatorsize = generator.w / 16;
+	RGBAImage generatortiles = getResizedTerrain(generator, generatorsize, B);
+
+	// read the machine file, check that it's okay
+	RGBAImage machine;
+	if (!machine.readPNG(machineFile))
+	{
+		cerr << "Could not read file: " << machineFile << endl;
+		return false;
+	}
+	int machinesize = machine.w / 16;
+	RGBAImage machinetiles = getResizedTerrain(machine, machinesize, B);
+
+	// read the machine2 file, check that it's okay
+	RGBAImage machine2;
+	if (!machine2.readPNG(machine2File))
+	{
+		cerr << "Could not read file: " << machine2File << endl;
+		return false;
+	}
+	int machine2size = machine2.w / 16;
+	RGBAImage machine2tiles = getResizedTerrain(machine2, machine2size, B);
+
+	// read the personal file, check that it's okay
+	RGBAImage personal;
+	if (!personal.readPNG(personalFile))
+	{
+		cerr << "Could not read file: " << personalFile << endl;
+		return false;
+	}
+	int personalsize = personal.w / 16;
+	RGBAImage personaltiles = getResizedTerrain(personal, personalsize, B);
+
+
+	drawItemBlockImage(img, getRect(600), block0tiles, TEXCOORD(2, 9), B); // Crop
+	drawBlockImage(img, getRect(601), block0tiles, TEXCOORD(6, 11), TEXCOORD(6, 11), TEXCOORD(6, 11), B); // Luminator (on)
+	drawBlockImage(img, getRect(602), block0tiles, TEXCOORD(7, 4), TEXCOORD(7, 4), TEXCOORD(7, 5), B); // Scaffold
+	drawBlockImage(img, getRect(603), block0tiles, TEXCOORD(2, 3), TEXCOORD(2, 3), TEXCOORD(2, 3), B); // Wall
+	drawBlockImage(img, getRect(604), block0tiles, TEXCOORD(2, 5), TEXCOORD(2, 5), TEXCOORD(2, 5), B); // ConstructionFoam
+	drawBlockImage(img, getRect(605), machine2tiles, TEXCOORD(0, 0), TEXCOORD(0, 0), TEXCOORD(0, 0), B); // Teleporter
+	drawBlockImage(img, getRect(606), machine2tiles, TEXCOORD(0, 1), TEXCOORD(0, 1), TEXCOORD(0, 1), B); // TeslaCoil
+	drawBlockImage(img, getRect(607), cabletiles, TEXCOORD(1, 0), TEXCOORD(1, 0), TEXCOORD(1, 0), B); // CopperBlock
+	drawBlockImage(img, getRect(608), cabletiles, TEXCOORD(10, 0), TEXCOORD(10, 0), TEXCOORD(10, 0), B); // TinBlock
+	drawBlockImage(img, getRect(609), cabletiles, TEXCOORD(2, 0), TEXCOORD(2, 0), TEXCOORD(2, 0), B); // BronzeBlock
+	drawBlockImage(img, getRect(610), block0tiles, TEXCOORD(4, 3), TEXCOORD(4, 3), TEXCOORD(4, 3), B); // UraniumBlock
+	drawBlockImage(img, getRect(611), personaltiles, TEXCOORD(2, 0), TEXCOORD(3, 0), TEXCOORD(1, 0), B); // PersonalSafe N
+	drawBlockImage(img, getRect(612), personaltiles, TEXCOORD(3, 0), TEXCOORD(2, 0), TEXCOORD(1, 0), B); // PersonalSafe W
+	drawBlockImage(img, getRect(613), personaltiles, TEXCOORD(2, 0), TEXCOORD(2, 0), TEXCOORD(1, 0), B); // PersonalSafe E/S
+	drawBlockImage(img, getRect(614), personaltiles, TEXCOORD(0, 1), TEXCOORD(3, 1), TEXCOORD(0, 1), B); // TradeOMat N
+	drawBlockImage(img, getRect(615), personaltiles, TEXCOORD(3, 1), TEXCOORD(0, 1), TEXCOORD(0, 1), B); // TradeOMat W
+	drawBlockImage(img, getRect(616), personaltiles, TEXCOORD(0, 1), TEXCOORD(0, 1), TEXCOORD(0, 1), B); // TradeOMat E/S
+	drawBlockImage(img, getRect(617), block0tiles, TEXCOORD(6, 15), TEXCOORD(6, 15), TEXCOORD(6, 15), B); // Luminator
+	drawBlockImage(img, getRect(618), electrictiles, TEXCOORD(0, 0), TEXCOORD(3, 0), TEXCOORD(0, 0), B); // BatBox
+	drawBlockImage(img, getRect(619), electrictiles, TEXCOORD(0, 1), TEXCOORD(3, 1), TEXCOORD(0, 1), B); // MFE N
+	drawBlockImage(img, getRect(620), electrictiles, TEXCOORD(3, 1), TEXCOORD(0, 1), TEXCOORD(0, 1), B); // MFE W
+	drawBlockImage(img, getRect(621), electrictiles, TEXCOORD(0, 1), TEXCOORD(0, 1), TEXCOORD(0, 1), B); // MFE E/S
+	drawBlockImage(img, getRect(622), electrictiles, TEXCOORD(0, 2), TEXCOORD(3, 2), TEXCOORD(0, 2), B); // MFSU N
+	drawBlockImage(img, getRect(623), electrictiles, TEXCOORD(3, 2), TEXCOORD(0, 2), TEXCOORD(0, 2), B); // MFSU W
+	drawBlockImage(img, getRect(624), electrictiles, TEXCOORD(0, 2), TEXCOORD(0, 2), TEXCOORD(0, 2), B); // MFSU E/S
+	drawBlockImage(img, getRect(625), electrictiles, TEXCOORD(0, 3), TEXCOORD(3, 3), TEXCOORD(0, 3), B); // LVTransformer N
+	drawBlockImage(img, getRect(626), electrictiles, TEXCOORD(3, 3), TEXCOORD(0, 3), TEXCOORD(0, 3), B); // LVTransformer W
+	drawBlockImage(img, getRect(627), electrictiles, TEXCOORD(0, 3), TEXCOORD(0, 3), TEXCOORD(0, 3), B); // LVTransformer E//s
+	drawBlockImage(img, getRect(628), electrictiles, TEXCOORD(0, 4), TEXCOORD(3, 4), TEXCOORD(0, 4), B); // MVTransformer N
+	drawBlockImage(img, getRect(629), electrictiles, TEXCOORD(3, 4), TEXCOORD(0, 4), TEXCOORD(0, 4), B); // MVTransformer W
+	drawBlockImage(img, getRect(630), electrictiles, TEXCOORD(0, 4), TEXCOORD(0, 4), TEXCOORD(0, 4), B); // MVTransformer E/S
+	drawBlockImage(img, getRect(631), electrictiles, TEXCOORD(0, 5), TEXCOORD(3, 5), TEXCOORD(0, 5), B); // HVTransformer N
+	drawBlockImage(img, getRect(632), electrictiles, TEXCOORD(3, 5), TEXCOORD(0, 5), TEXCOORD(0, 5), B); // HVTransformer W
+	drawBlockImage(img, getRect(633), electrictiles, TEXCOORD(0, 5), TEXCOORD(0, 5), TEXCOORD(0, 5), B); // HVTransformer E/S
+	drawBlockImage(img, getRect(634), cabletiles, TEXCOORD(6, 0), TEXCOORD(6, 0), TEXCOORD(6, 0), B); // Cable
+	drawSingleFaceBlockImage(img, getRect(635), block0tiles, TEXCOORD(0, 14), 2, B); // Reinforced Door N upper
+	drawSingleFaceBlockImage(img, getRect(636), block0tiles, TEXCOORD(0, 14), 3, B); // Reinforced Door S upper
+	drawSingleFaceBlockImage(img, getRect(637), block0tiles, TEXCOORD(0, 14), 1, B); // Reinforced Door E upper
+	drawSingleFaceBlockImage(img, getRect(638), block0tiles, TEXCOORD(0, 14), 0, B); // Reinforced Door W upper
+	drawSingleFaceBlockImage(img, getRect(716), block0tiles, TEXCOORD(0, 15), 2, B); // Reinforced Door N lower
+	drawSingleFaceBlockImage(img, getRect(717), block0tiles, TEXCOORD(0, 15), 3, B); // Reinforced Door S lower
+	drawSingleFaceBlockImage(img, getRect(718), block0tiles, TEXCOORD(0, 15), 1, B); // Reinforced Door E lower
+	drawSingleFaceBlockImage(img, getRect(719), block0tiles, TEXCOORD(0, 15), 0, B); // Reinforced Door W lower	
+	drawBlockImage(img, getRect(639), block0tiles, TEXCOORD(0, 13), TEXCOORD(0, 13), TEXCOORD(0, 13), B); // ReinforcedGlass
+	drawBlockImage(img, getRect(640), block0tiles, TEXCOORD(0, 12), TEXCOORD(0, 12), TEXCOORD(0, 12), B); // ReinforcedStone
+	drawBlockImage(img, getRect(641), block0tiles, TEXCOORD(1, 1), TEXCOORD(1, 1), TEXCOORD(1, 1), B); // IronFence (FIXME: busted)
+	drawBlockImage(img, getRect(642), block0tiles, TEXCOORD(4, 15), TEXCOORD(4, 15), TEXCOORD(4, 15), B); // ReactorChamber
+	drawPartialBlockImage(img, getRect(643), block0tiles, TEXCOORD(2, 8), TEXCOORD(2, 8), TEXCOORD(2, 8), B, 7*B/8, 0, 0, 0, true); // RubberSheet
+	drawItemBlockImage(img, getRect(644), block0tiles, TEXCOORD(3, 8), B); // RemoteDynamite
+	drawItemBlockImage(img, getRect(645), block0tiles, TEXCOORD(3, 9) , B); // Dynamite
+	drawBlockImage(img, getRect(646), block0tiles, TEXCOORD(3, 15), TEXCOORD(3, 15), TEXCOORD(3, 14), B); // Nuke
+	drawBlockImage(img, getRect(647), block0tiles, TEXCOORD(3, 12), TEXCOORD(3, 12), TEXCOORD(3, 11), B); // ITNT
+	drawItemBlockImage(img, getRect(648), block0tiles, TEXCOORD(2, 6), B); // RubberSapling
+	drawBlockImage(img, getRect(649), block0tiles, TEXCOORD(2, 6), TEXCOORD(2, 6), TEXCOORD(2, 6), B); // RubberLeaves (FIXME: currently wrong texture)
+	drawBlockImage(img, getRect(650), block0tiles, TEXCOORD(2, 13), TEXCOORD(2, 13), TEXCOORD(2, 15), B); // RubberWood
+	drawFencePost(img, getRect(651), block0tiles, TEXCOORD(1, 1), B); // MiningTip
+	drawFencePost(img, getRect(652), block0tiles, TEXCOORD(1, 1), B); // MiningPipe
+	drawBlockImage(img, getRect(653), generatortiles, TEXCOORD(0, 0), TEXCOORD(3, 0), TEXCOORD(1, 0), B); // Generator N
+	drawBlockImage(img, getRect(654), generatortiles, TEXCOORD(3, 0), TEXCOORD(0, 0), TEXCOORD(1, 0), B); // Generator W
+	drawBlockImage(img, getRect(655), generatortiles, TEXCOORD(0, 0), TEXCOORD(0, 0), TEXCOORD(1, 0), B); // Generator E/S
+	drawBlockImage(img, getRect(656), generatortiles, TEXCOORD(0, 1), TEXCOORD(3, 1), TEXCOORD(1, 1), B); // GeothermalGenerator N
+	drawBlockImage(img, getRect(657), generatortiles, TEXCOORD(3, 1), TEXCOORD(0, 1), TEXCOORD(1, 1), B); // GeothermalGenerator W
+	drawBlockImage(img, getRect(658), generatortiles, TEXCOORD(0, 1), TEXCOORD(0, 1), TEXCOORD(1, 1), B); // GeothermalGenerator E/S
+	drawBlockImage(img, getRect(659), generatortiles, TEXCOORD(0, 2), TEXCOORD(3, 2), TEXCOORD(1, 2), B); // WaterMill N
+	drawBlockImage(img, getRect(660), generatortiles, TEXCOORD(3, 2), TEXCOORD(0, 2), TEXCOORD(1, 2), B); // WaterMill W
+	drawBlockImage(img, getRect(661), generatortiles, TEXCOORD(0, 2), TEXCOORD(0, 2), TEXCOORD(1, 2), B); // WaterMill E/S
+	drawBlockImage(img, getRect(662), generatortiles, TEXCOORD(3, 3), TEXCOORD(3, 3), TEXCOORD(1, 3), B); // SolarPanel
+	drawBlockImage(img, getRect(663), generatortiles, TEXCOORD(0, 4), TEXCOORD(5, 4), TEXCOORD(1, 4), B); // WindMill N
+	drawBlockImage(img, getRect(664), generatortiles, TEXCOORD(5, 4), TEXCOORD(0, 4), TEXCOORD(1, 4), B); // WindMill W
+	drawBlockImage(img, getRect(665), generatortiles, TEXCOORD(0, 4), TEXCOORD(0, 4), TEXCOORD(1, 4), B); // WindMill E/S
+	drawBlockImage(img, getRect(666), generatortiles, TEXCOORD(0, 5), TEXCOORD(3, 5), TEXCOORD(1, 5), B); // NuclearReactor N
+	drawBlockImage(img, getRect(667), generatortiles, TEXCOORD(3, 5), TEXCOORD(0, 5), TEXCOORD(1, 5), B); // NuclearReactor W
+	drawBlockImage(img, getRect(668), generatortiles, TEXCOORD(0, 5), TEXCOORD(0, 5), TEXCOORD(1, 5), B); // NuclearReactor E/S
+	drawBlockImage(img, getRect(669), block0tiles, TEXCOORD(2, 2), TEXCOORD(2, 2), TEXCOORD(2, 2), B); // UraniumOre
+	drawBlockImage(img, getRect(670), block0tiles, TEXCOORD(2, 1), TEXCOORD(2, 1), TEXCOORD(2, 1), B); // TinOre
+	drawBlockImage(img, getRect(671), block0tiles, TEXCOORD(2, 0), TEXCOORD(2, 0), TEXCOORD(2, 0), B); // CopperOre
+	drawBlockImage(img, getRect(672), machinetiles, TEXCOORD(0, 0), TEXCOORD(0, 0), TEXCOORD(1, 0), B); // MachineBlock
+	drawBlockImage(img, getRect(673), machinetiles, TEXCOORD(0, 1), TEXCOORD(3, 1), TEXCOORD(1, 1), B); // IronFurnace N
+	drawBlockImage(img, getRect(674), machinetiles, TEXCOORD(3, 1), TEXCOORD(0, 1), TEXCOORD(1, 1), B); // IronFurnace W
+	drawBlockImage(img, getRect(675), machinetiles, TEXCOORD(0, 1), TEXCOORD(0, 1), TEXCOORD(1, 1), B); // IronFurnace E/S
+	drawBlockImage(img, getRect(676), machinetiles, TEXCOORD(0, 2), TEXCOORD(3, 2), TEXCOORD(1, 2), B); // ElectricFurnace N
+	drawBlockImage(img, getRect(677), machinetiles, TEXCOORD(3, 2), TEXCOORD(0, 2), TEXCOORD(1, 2), B); // ElectricFurnace W
+	drawBlockImage(img, getRect(678), machinetiles, TEXCOORD(0, 2), TEXCOORD(0, 2), TEXCOORD(1, 2), B); // ElectricFurnace E/S
+	drawBlockImage(img, getRect(679), machinetiles, TEXCOORD(0, 3), TEXCOORD(3, 3), TEXCOORD(1, 3), B); // Macerator N
+	drawBlockImage(img, getRect(680), machinetiles, TEXCOORD(3, 3), TEXCOORD(0, 3), TEXCOORD(1, 3), B); // Macerator W
+	drawBlockImage(img, getRect(681), machinetiles, TEXCOORD(0, 3), TEXCOORD(0, 3), TEXCOORD(1, 3), B); // Macerator E/S
+	drawBlockImage(img, getRect(682), machinetiles, TEXCOORD(0, 4), TEXCOORD(3, 4), TEXCOORD(1, 4), B); // Extractor N
+	drawBlockImage(img, getRect(683), machinetiles, TEXCOORD(3, 4), TEXCOORD(0, 4), TEXCOORD(1, 4), B); // Extractor W
+	drawBlockImage(img, getRect(684), machinetiles, TEXCOORD(0, 4), TEXCOORD(0, 4), TEXCOORD(1, 4), B); // Extractor E/S
+	drawBlockImage(img, getRect(685), machinetiles, TEXCOORD(0, 5), TEXCOORD(3, 5), TEXCOORD(1, 5), B); // Compressor N
+	drawBlockImage(img, getRect(686), machinetiles, TEXCOORD(3, 5), TEXCOORD(0, 5), TEXCOORD(1, 5), B); // Compressor W
+	drawBlockImage(img, getRect(687), machinetiles, TEXCOORD(0, 5), TEXCOORD(0, 5), TEXCOORD(1, 5), B); // Compressor E/S
+	drawBlockImage(img, getRect(688), machinetiles, TEXCOORD(0, 6), TEXCOORD(3, 6), TEXCOORD(1, 6), B); // CanningMachine N
+	drawBlockImage(img, getRect(689), machinetiles, TEXCOORD(3, 6), TEXCOORD(0, 6), TEXCOORD(1, 6), B); // CanningMachine W
+	drawBlockImage(img, getRect(690), machinetiles, TEXCOORD(0, 6), TEXCOORD(0, 6), TEXCOORD(1, 6), B); // CanningMachine E/S
+	drawBlockImage(img, getRect(691), machinetiles, TEXCOORD(0, 7), TEXCOORD(3, 7), TEXCOORD(1, 7), B); // Miner N
+	drawBlockImage(img, getRect(692), machinetiles, TEXCOORD(3, 7), TEXCOORD(0, 7), TEXCOORD(1, 7), B); // Miner W
+	drawBlockImage(img, getRect(693), machinetiles, TEXCOORD(0, 7), TEXCOORD(0, 7), TEXCOORD(1, 7), B); // Miner E/S
+	drawBlockImage(img, getRect(694), machinetiles, TEXCOORD(0, 8), TEXCOORD(3, 8), TEXCOORD(1, 8), B); // Pump N
+	drawBlockImage(img, getRect(695), machinetiles, TEXCOORD(3, 8), TEXCOORD(0, 8), TEXCOORD(1, 8), B); // Pump W
+	drawBlockImage(img, getRect(696), machinetiles, TEXCOORD(0, 8), TEXCOORD(0, 8), TEXCOORD(1, 8), B); // Pump E/S
+	drawBlockImage(img, getRect(697), machinetiles, TEXCOORD(0, 9), TEXCOORD(3, 9), TEXCOORD(1, 9), B); // Magnetizer N
+	drawBlockImage(img, getRect(698), machinetiles, TEXCOORD(3, 9), TEXCOORD(0, 9), TEXCOORD(1, 9), B); // Magnetizer W
+	drawBlockImage(img, getRect(699), machinetiles, TEXCOORD(0, 9), TEXCOORD(0, 9), TEXCOORD(1, 9), B); // Magnetizer E/S
+	drawBlockImage(img, getRect(700), machinetiles, TEXCOORD(0, 10), TEXCOORD(3, 10), TEXCOORD(1, 10), B); // Electrolyzer N
+	drawBlockImage(img, getRect(701), machinetiles, TEXCOORD(3, 10), TEXCOORD(0, 10), TEXCOORD(1, 10), B); // Electrolyzer W
+	drawBlockImage(img, getRect(702), machinetiles, TEXCOORD(0, 10), TEXCOORD(0, 10), TEXCOORD(1, 10), B); // Electrolyzer E/S
+	drawBlockImage(img, getRect(703), machinetiles, TEXCOORD(0, 11), TEXCOORD(3, 11), TEXCOORD(1, 11), B); // Recycler N
+	drawBlockImage(img, getRect(704), machinetiles, TEXCOORD(3, 11), TEXCOORD(0, 11), TEXCOORD(1, 11), B); // Recycler W
+	drawBlockImage(img, getRect(705), machinetiles, TEXCOORD(0, 11), TEXCOORD(0, 11), TEXCOORD(1, 11), B); // Recycler E/S
+	drawBlockImage(img, getRect(706), machinetiles, TEXCOORD(0, 12), TEXCOORD(0, 12), TEXCOORD(1, 12), B); // AdvancedMachineBlock
+	drawBlockImage(img, getRect(707), machinetiles, TEXCOORD(0, 13), TEXCOORD(3, 13), TEXCOORD(1, 13), B); // InductionFurnace N
+	drawBlockImage(img, getRect(708), machinetiles, TEXCOORD(3, 13), TEXCOORD(0, 13), TEXCOORD(1, 13), B); // InductionFurnace W
+	drawBlockImage(img, getRect(709), machinetiles, TEXCOORD(0, 13), TEXCOORD(0, 13), TEXCOORD(1, 13), B); // InductionFurnace E/S
+	drawBlockImage(img, getRect(710), machinetiles, TEXCOORD(0, 14), TEXCOORD(3, 14), TEXCOORD(1, 14), B); // MassFabricator N
+	drawBlockImage(img, getRect(711), machinetiles, TEXCOORD(3, 14), TEXCOORD(0, 14), TEXCOORD(1, 14), B); // MassFabricator W
+	drawBlockImage(img, getRect(712), machinetiles, TEXCOORD(0, 14), TEXCOORD(0, 14), TEXCOORD(1, 14), B); // MassFabricator E/S
+	drawBlockImage(img, getRect(713), machinetiles, TEXCOORD(0, 15), TEXCOORD(3, 15), TEXCOORD(1, 15), B); // Terraformer N
+	drawBlockImage(img, getRect(714), machinetiles, TEXCOORD(3, 15), TEXCOORD(0, 15), TEXCOORD(1, 15), B); // Terraformer W
+	drawBlockImage(img, getRect(715), machinetiles, TEXCOORD(0, 15), TEXCOORD(0, 15), TEXCOORD(1, 15), B); // Terraformer E/S
+
+	return true;
 }
 
 bool BlockImages::construct(int B, const string& terrainfile, const string& firefile, const string& endportalfile)

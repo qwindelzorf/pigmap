@@ -118,9 +118,16 @@ struct BlockImages
 
 	// build block images from terrain.png
 	bool construct(int B, const std::string& terrainfile, const std::string& firefile, const std::string& endportalfile);
+
+	// build block images from Buildcraft's block_textures.png
+	bool constructBC(int B, const std::string& bcTexFlile);
+
+	// Build block images for IC2
+	bool constructIC(int B, const std::string& block0File, const std::string& cableFile, const std::string& electricFile, 
+	const std::string& generatorFile, const std::string& machineFile, const std::string& machine2File, const std::string& personalFile);
 };
 
-#define NUMBLOCKIMAGES 464
+#define NUMBLOCKIMAGES 715
 
 // block image offsets:
 //
@@ -256,6 +263,196 @@ struct BlockImages
 // 414 closed sticky piston U  446 brick stairs inv S
 // 415 closed sticky piston N  447 brick stairs inv N
 
+// Buildcraft Blocks
+// 500 wood output pipe
+// 501 cobblestone pipe
+// 502 iron output pipe
+// 503 iron input pipe
+// 504 gold pipe
+// 505 diamond pipe
+// 506 diamond black pipe
+// 507 diamond teal pipe
+// 508 diamond red pipe
+// 509 diamond blue pipe
+// 510 diamond green pipe
+// 511 diamond yellow pipe
+// 512 obsidian pipe
+// 513 stone pipe
+// 514 active gold pipe
+// 515 wood input pipe
+// 516 mining pipe
+// 517 mining tip
+// 518 frame
+// 519 miningwell W
+// 520 miningwell N
+// 521 miningwell E/S
+// 522 quarry W
+// 523 quarry N
+// 524 quarry E/S
+// 525 Autoworkbench
+// 526 Template Table
+// 527 Builder W
+// 528 Builder N
+// 529 Builder E/S
+// 530 Filler W
+// 531 Filler N
+// 532 Filler E/S
+// 533 Tank
+// 534 Pump W
+// 535 Pump N
+// 536 Pump E/S
+// 537 Pump Inlet
+// 538 UNUSED
+// 539 UNUSED
+// 540 landmark floor     
+// 541 landmark pointing S
+// 542 landmark pointing N
+// 543 landmark pointing W
+// 544 landmark pointing E
+// 555 Waterproof Wood Pipe
+// 556 Waterproof Cobblestone Pipe
+// 557 Waterproof stone pipe
+// 558 waterproof iron pipe
+// 559 waterproof gold pipe
+// 560 waterproof diamond pipe
+// 561 conductive wood pipe
+// 562 conductive cobblestone pipe
+// 563 conductive stone pipe
+// 564 conductive iron pipe
+// 565 conductive gold pipe
+// 566 conductive diamond pipe
+// 567 redstone engine
+// 568 steam engine
+// 569 combustion engine
+// 570 oil
+// 571 oil 1
+// 572 oil 2
+// 573 oil 3
+// 574 oil 4
+// 575 oil 5
+// 576 oil 6
+// 577 oil 7
 
+// Industrial-Craft 2 Blocks
+// 600 Crop
+// 601 Luminator
+// 602 Scaffold
+// 603 Wall
+// 604 ConstructionFoam
+// 605 Teleporter
+// 606 TeslaCoil
+// 607 CopperBlock
+// 608 TinBlock
+// 609 BronzeBlock
+// 610 UraniumBlock
+// 611 PersonalSafe N
+// 612 PersonalSafe W
+// 613 PersonalSafe E/S
+// 614 TradeOMat N
+// 615 TradeOMat W
+// 616 TradeOMat E/S
+// 617 Luminator
+// 618 BatBox
+// 619 MFE N
+// 620 MFE W
+// 621 MFE E/S
+// 622 MFSU N
+// 623 MFSU W
+// 624 MFSU E/S
+// 625 LVTransformer N
+// 626 LVTransformer W
+// 627 LVTransformer E//s
+// 628 MVTransformer N
+// 629 MVTransformer W
+// 630 MVTransformer E/S
+// 631 HVTransformer N
+// 632 HVTransformer W
+// 633 HVTransformer E/S
+// 634 Cable
+// 635 ReinforcedDoor N upper
+// 636 ReinforcedDoor S upper
+// 637 ReinforcedDoor E upper
+// 638 ReinforcedDoor W upper
+// 639 ReinforcedGlass
+// 640 ReinforcedStone
+// 641 IronFence
+// 642 ReactorChamber
+// 643 RubberSheet
+// 644 RemoteDynamite
+// 645 Dynamite
+// 646 Nuke
+// 647 ITNT
+// 648 RubberSapling
+// 649 RubberLeaves
+// 650 RubberWood
+// 651 MiningTip
+// 652 MiningPipe
+// 653 Generator N
+// 654 Generator W
+// 655 Generator E/S
+// 656 GeothermalGenerator N
+// 657 GeothermalGenerator W
+// 658 GeothermalGenerator E/S
+// 659 WaterMill N
+// 660 WaterMill W
+// 661 WaterMill E/S
+// 662 SolarPanel
+// 663 WindMill N
+// 664 WindMill W
+// 665 WindMill E/S
+// 666 NuclearReactor N
+// 667 NuclearReactor W
+// 668 NuclearReactor E/S
+// 669 UraniumOre
+// 670 TinOre
+// 671 CopperOre
+// 672 MachineBlock
+// 673 IronFurnace N
+// 674 IronFurnace W
+// 675 IronFurnace E/S
+// 676 ElectricFurnace N
+// 677 ElectricFurnace W
+// 678 ElectricFurnace E/S
+// 679 Macerator N
+// 680 Macerator W
+// 681 Macerator E/S
+// 682 Extractor N
+// 683 Extractor W
+// 684 Extractor E/S
+// 685 Compressor N
+// 686 Compressor W
+// 687 Compressor E/S
+// 688 CanningMachine N
+// 689 CanningMachine W
+// 690 CanningMachine E/S
+// 691 Miner N
+// 692 Miner W
+// 693 Miner E/S
+// 694 Pump N
+// 695 Pump W
+// 696 Pump E/S
+// 697 Magnetizer N
+// 698 Magnetizer W
+// 699 Magnetizer E/S
+// 700 Electrolyzer N
+// 701 Electrolyzer W
+// 702 Electrolyzer E/S
+// 703 Recycler N
+// 704 Recycler W
+// 705 Recycler E/S
+// 706 AdvancedMachineBlock
+// 707 InductionFurnace N
+// 708 InductionFurnace W
+// 709 InductionFurnace E/S
+// 710 MassFabricator N
+// 711 MassFabricator W
+// 712 MassFabricator E/S
+// 713 Terraformer N
+// 714 Terraformer W
+// 715 Terraformer E/S
+// 716 ReinforcedDoor N lower
+// 717 ReinforcedDoor S lower
+// 718 ReinforcedDoor E lower
+// 719 ReinforcedDoor W lower
 
 #endif // BLOCKIMAGES_H
